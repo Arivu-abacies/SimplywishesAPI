@@ -1,15 +1,19 @@
 <?php 
 
 namespace app\modules\api\controllers;
+
 use yii;
 use yii\rest\ActiveController;
+use yii\web\UploadedFile;
 use app\models\LoginForm;
-use app\models\UserProfile as Profile;
+use app\models\UserProfile;
 use app\models\User;
 use app\models\Country;
 use app\models\State;
 use app\models\City;
+use app\models\MailContent;
 use app\models\Wish;
+use app\models\Activity;
 use app\models\search\SearchWish;
 use yii\data\ActiveDataProvider;
 
@@ -52,13 +56,81 @@ class WishController extends ActiveController
        $model->password = Yii::$app->request->post('password');
        if ($model->login()) {
            $userid = Yii::$app->user->id;
-		   $user_details = Profile::find()->where(['user_id'=>$userid])->asArray()->one();		   
+		   $user_details = UserProfile::find()->where(['user_id'=>$userid])->asArray()->one();		   
            return json_encode(['result'=>'success','userid'=>$userid,'user_details'=>$user_details]);
        }else{
            return json_encode(['result'=>'failed','message'=>$model->errors]);
        }
    }
    
+     function Register(){
+        $user = new User();
+		$user->scenario = 'sign-up';
+		$profile = new UserProfile();
+		$countries = \yii\helpers\ArrayHelper::map(\app\models\Country::find()->all(),'id','name');	
+	
+		$privacy_policy = \app\models\Page::find()->where(['p_id'=>1])->one();		
+		$terms = \app\models\Page::find()->where(['p_id'=>2])->one();		
+		$community_guidelines = \app\models\Page::find()->where(['p_id'=>3])->one();
+		
+		$user->username         = Yii::$app->request->post('username');
+		$user->email            = Yii::$app->request->post('email');
+		$user->password         = Yii::$app->request->post('password');
+		$user->verify_password  = Yii::$app->request->post('verify_password');
+        
+		$profile->firstname     = Yii::$app->request->post('firstname');
+		$profile->lastname      = Yii::$app->request->post('lastname');
+		$profile->country       = Yii::$app->request->post('country');
+		$profile->state         = Yii::$app->request->post('state');
+		$profile->city          = Yii::$app->request->post('city');
+		$profile->about         = Yii::$app->request->post('about');
+		$profile->dulpicate_image= file_get_contents(Yii::$app->request->post('dulpicate_image'));
+        $profile->profile_image = 'uploads/newimg'.date('Y-m-d_H-m-s').'.png';
+        copy(Yii::$app->request->post('profile_image'),$profile->profile_image);
+
+        $user->setPassword($user->password);
+        $user->generateAuthKey();
+        $user->status = 10;
+        // In-Active State 
+        if($user->save()){
+            $profile->user_id = $user->id;
+            if(!$profile->save()){
+                return json_encode(['result'=>'failed','message'=>$profile->errors]);
+            }
+            $profile->sendVAlidationEmail($user->email);
+            return json_encode(['result'=>'success','userid'=>$user->id]);
+        } 
+        else 
+        {
+            return json_encode(['result'=>'failed','message'=>$user->errors]);
+        }
+    }
+    
+    function WishedFor(){
+        $wish_id    = Yii::$app->request->post('wish_id');
+        $type       = Yii::$app->request->post('type');
+        $wish = Wish::find()->where(['w_id'=>$wish_id])->one();
+		$activity = Activity::find()->where(['wish_id'=>$wish->w_id,'activity'=>$type,'user_id'=>\Yii::$app->user->id])->one();
+		if($activity != null){
+			$activity->delete();
+            $message = "removed";
+			return json_encode(['result'=>'success','message'=>$message]);
+		}
+        else{
+            $activity = new Activity();
+            $activity->wish_id = $wish->w_id;
+            $activity->activity = $type;
+            $activity->user_id = \Yii::$app->user->id;
+            if($activity->save()){
+                $message = "added";
+                return json_encode(['result'=>'success','message'=>$message]);
+            }
+            else{
+                return json_encode(['result'=>'failed','message'=>$user->errors]);
+            }
+        }
+    }
+	
    function Countrylist()
    {
        	$countries = \yii\helpers\ArrayHelper::map(\app\models\Country::find()->asArray()->all(),'id','name');	
